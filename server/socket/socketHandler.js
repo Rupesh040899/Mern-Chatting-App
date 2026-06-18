@@ -1,40 +1,39 @@
-const { MOCK_USERS, mockMessages } = require('../config/mockData');
+const Message = require('../models/Message');
+const User = require('../models/User');
 
 const activeUsers = new Map();
 
 const socketHandler = (io) => {
   io.on('connection', (socket) => {
-    socket.on('user-connected', (userId) => {
+    socket.on('user-connected', async (userId) => {
+      if (!userId) return;
       activeUsers.set(userId, socket.id);
-      const user = MOCK_USERS.find((u) => u._id === userId);
-      if (user) user.isOnline = true;
+      try {
+        await User.findByIdAndUpdate(userId, { isOnline: true });
+      } catch (err) {
+        console.error('user-connected error:', err.message);
+      }
       io.emit('online-users', Array.from(activeUsers.keys()));
       socket.broadcast.emit('user-status', { userId, status: 'online' });
     });
 
-    socket.on('send-message', (payload) => {
-      const { senderId, receiverId, text } = payload;
+    socket.on('send-message', async (payload) => {
+      const { senderId, receiverId, text } = payload || {};
       if (!senderId || !receiverId || !text) return;
 
-      const sender = MOCK_USERS.find((u) => u._id === senderId);
-      const receiver = MOCK_USERS.find((u) => u._id === receiverId);
-      if (!sender || !receiver) return;
+      try {
+        let message = await Message.create({ senderId, receiverId, text });
+        message = await message.populate('senderId', 'username avatar');
+        message = await message.populate('receiverId', 'username avatar');
 
-      const message = {
-        _id: `msg_${Date.now()}`,
-        senderId: { _id: sender._id, username: sender.username, avatar: sender.avatar },
-        receiverId: { _id: receiver._id, username: receiver.username, avatar: receiver.avatar },
-        text,
-        seen: false,
-        createdAt: new Date().toISOString(),
-      };
-      mockMessages.push(message);
-
-      const receiverSocket = activeUsers.get(receiverId);
-      if (receiverSocket) {
-        io.to(receiverSocket).emit('receive-message', message);
+        const receiverSocket = activeUsers.get(receiverId);
+        if (receiverSocket) {
+          io.to(receiverSocket).emit('receive-message', message);
+        }
+        socket.emit('message-sent', message);
+      } catch (err) {
+        console.error('send-message error:', err.message);
       }
-      socket.emit('message-sent', message);
     });
 
     socket.on('typing', ({ senderId, receiverId, isTyping }) => {
@@ -44,12 +43,15 @@ const socketHandler = (io) => {
       }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       for (const [userId, socketId] of activeUsers.entries()) {
         if (socketId === socket.id) {
           activeUsers.delete(userId);
-          const user = MOCK_USERS.find((u) => u._id === userId);
-          if (user) user.isOnline = false;
+          try {
+            await User.findByIdAndUpdate(userId, { isOnline: false });
+          } catch (err) {
+            console.error('disconnect error:', err.message);
+          }
           socket.broadcast.emit('online-users', Array.from(activeUsers.keys()));
           socket.broadcast.emit('user-status', { userId, status: 'offline' });
           break;

@@ -43,8 +43,7 @@ Next-App/
 └── server/                  # Express backend
     ├── server.js            # App entry — Express, CORS, routes, Socket.IO setup
     ├── config/
-    │   ├── db.js            # Mongoose connection (MongoDB Atlas)
-    │   └── mockData.js      # In-memory mock users + messages (for dev without DB)
+    │   └── db.js            # Mongoose connection (MongoDB Atlas → LiveChatApp db)
     ├── controllers/
     │   ├── authController.js    # registerUser(), loginUser()
     │   ├── userController.js    # getUsers(), getCurrentUser()
@@ -97,7 +96,7 @@ Next-App/
 1. On login, `useSocket` hook creates a Socket.IO connection to `http://localhost:5000`
 2. Client emits `user-connected` with their user ID → server registers them in `activeUsers` map
 3. When a message is sent via the input, client emits `send-message` with `{ senderId, receiverId, text }`
-4. Server saves the message to DB (or mock store), then:
+4. Server saves the message to MongoDB (`messages` collection), then:
    - Emits `message-sent` back to the sender
    - Emits `receive-message` to the receiver's socket (if online)
 5. Both events are handled by the same `onMessage` handler in ChatShell
@@ -203,34 +202,33 @@ npm run dev       # runs on http://localhost:3000
 
 ### server/.env
 ```
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.s3icvpv.mongodb.net/chatapp
+MONGO_URI=mongodb+srv://<username>:<password>@cluster0.i2cz6zs.mongodb.net/LiveChatApp?retryWrites=true&w=majority&appName=Cluster0
 JWT_SECRET=your_secret_key_here
 PORT=5000
 ```
 
+> **Note:** The database name is `LiveChatApp` (set in the URI path). Collections (`users`, `messages`) are created automatically by Mongoose on first write. If your password contains special characters (`@`, `:`, `/`, etc.), URL-encode them — e.g. `@` becomes `%40`. Ensure your current IP is allowlisted under Atlas → Network Access.
+
 ---
 
-## Mock Mode (No Database)
+## Database
 
-The project includes a mock data system in `server/config/mockData.js` for development without a database connection. To use it:
+The app connects to **MongoDB Atlas** on startup via `connectDB()` in `server/server.js`, using the `MONGO_URI` from `server/.env`. All data is persisted in the **`LiveChatApp`** database:
 
-1. Comment out `connectDB()` in `server/server.js`
-2. The mock controllers use an in-memory array instead of MongoDB
-3. Messages reset on every server restart
-
-**Mock test accounts:**
-| Email | Password |
+| Collection | Holds |
 |---|---|
-| alice@test.com | password123 |
-| bob@test.com | password123 |
-| charlie@test.com | password123 |
-| david@test.com | password123 |
+| `users` | Accounts — username, email, bcrypt-hashed password, avatar, online status |
+| `messages` | Chat messages — sender, receiver, text, seen flag, timestamps |
+
+Mongoose creates these collections automatically from the `User` and `Message` models on the first insert. Passwords are never stored in plaintext — they are bcrypt-hashed inside each user document. There is no separate password collection; that is the standard, secure pattern.
+
+> The earlier mock-data mode (`config/mockData.js`) has been removed now that the app runs against a live database. Register a new account to start; older mock accounts (Alice/Bob/etc.) no longer exist.
 
 ---
 
 ## Key Design Decisions
 
-- **Mock mode** was built to allow full UI/UX development and testing without needing a live database connection.
+- **Persistence** is handled entirely by MongoDB Atlas (`LiveChatApp` db) — accounts, messages, and online status all survive server restarts.
 - **Socket.IO** handles both message delivery and typing indicators — HTTP API is only used for fetching history and unread counts.
 - **GSAP** animations are scoped with `gsap.context()` and cleaned up on unmount to prevent memory leaks.
 - **Unread counts** are tracked both in the DB (`seen` field) and in React state for instant UI updates without refetching.

@@ -11,7 +11,7 @@ const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const socketHandler = require('./socket/socketHandler');
 
 dotenv.config();
-// connectDB();
+connectDB();
 
 const app = express();
 app.use(express.json());

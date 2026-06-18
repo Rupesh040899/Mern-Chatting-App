@@ -1,12 +1,17 @@
-const { MOCK_USERS } = require('../config/mockData');
+const User = require('../models/User');
 
-const getUsers = (req, res) => {
+const getUsers = async (req, res) => {
   const search = req.query.search || '';
-  const regex = new RegExp(search, 'i');
-  const users = MOCK_USERS
-    .filter((u) => u._id !== req.user._id)
-    .filter((u) => regex.test(u.username) || regex.test(u.email))
-    .map(({ password, ...u }) => u);
+  const users = await User.find({
+    _id: { $ne: req.user._id },
+    $or: [
+      { username: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+    ],
+  })
+    .select('-password')
+    .sort({ username: 1 });
+
   res.json(users);
 };
 
